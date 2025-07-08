@@ -1,6 +1,7 @@
 # resp-parser-go
-Implementation of a simple RESP (Redis Serialization Protocol) parser in Golang 
-
+Implementation of a simple RESP (Redis Serialization Protocol) parser in Golang <br />
+>[!IMPORTANT]  
+>Currently supports RESP2 only
 # Example 
 ```go
 package main
@@ -48,9 +49,10 @@ func main() {
 	// For arrays, the parsed elements are in BulkReturnType
 	fmt.Printf("Parsed Array Elements: %v\n", parsedArrayData.BulkReturnType) 
 	fmt.Printf("Parsed Array Raw Message: %q\n", parsedArrayData.Msg)
-}```
+}
+```
 
-# Test
+# Run Tests
 ```zsh
-    go test -v
+go test -v
 ```
