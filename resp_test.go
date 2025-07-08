@@ -431,3 +431,347 @@ func TestRespArrayParser(t *testing.T) {
 		})
 	}
 }
+
+// TestRespRoundTrip tests the complete round-trip: parse → serialize → parse
+// This ensures that serialization produces valid RESP format that can be parsed back
+func TestRespRoundTrip(t *testing.T) {
+	svc := NewRespService()
+
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		// Simple Strings
+		{"Simple string OK", "+OK\r\n", false},
+		{"Simple string PONG", "+PONG\r\n", false},
+		{"Empty simple string", "+\r\n", false},
+		{"Simple string with spaces", "+hello world\r\n", false},
+		{"Simple string with special chars", "+!@#$%^&*()\r\n", false},
+
+		// Simple Errors
+		{"Simple error", "-ERR unknown command\r\n", false},
+		{"Empty error", "-\r\n", false},
+		{"Error with spaces", "-WRONGTYPE Operation against a key\r\n", false},
+
+		// Integers
+		{"Zero integer", ":0\r\n", false},
+		{"Positive integer", ":123\r\n", false},
+		{"Negative integer", ":-456\r\n", false},
+		{"Large positive", ":9223372036854775807\r\n", false},
+		{"Large negative", ":-9223372036854775808\r\n", false},
+
+		// Bulk Strings
+		{"Basic bulk string", "$3\r\nfoo\r\n", false},
+		{"Empty bulk string", "$0\r\n\r\n", false},
+		{"Null bulk string", "$-1\r\n", false},
+		{"Bulk string with CRLF", "$5\r\nfoo\r\n\r\n", false},
+		{"Bulk string with spaces", "$11\r\nhello world\r\n", false},
+
+		// Arrays
+		{"Empty array", "*0\r\n", false},
+		{"Null array", "*-1\r\n", false},
+		{"Array of strings", "*2\r\n+foo\r\n+bar\r\n", false},
+		{"Array of integers", "*2\r\n:1\r\n:2\r\n", false},
+		{"Array of bulk strings", "*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n", false},
+		{"Mixed array", "*3\r\n+OK\r\n:42\r\n$5\r\nhello\r\n", false},
+		{"Array with null", "*2\r\n$-1\r\n$3\r\nbar\r\n", false},
+		{"Nested array", "*2\r\n*2\r\n+foo\r\n+bar\r\n:42\r\n", false},
+		{"Deep nested array", "*2\r\n*1\r\n*1\r\n+foo\r\n:99\r\n", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Step 1: Parse the original input
+			original, err := svc.Parse([]byte(tc.input))
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("Expected error parsing %q, but got none", tc.input)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("Unexpected error parsing %q: %v", tc.input, err)
+				return
+			}
+
+			// Step 2: Serialize the parsed data
+			serialized, err := svc.Serialize(original)
+			if err != nil {
+				t.Errorf("Error serializing parsed data: %v", err)
+				return
+			}
+
+			// Step 3: Parse the serialized data
+			roundTrip, err := svc.Parse([]byte(serialized))
+			if err != nil {
+				t.Errorf("Error parsing serialized data: %v", err)
+				return
+			}
+
+			// Step 4: Compare the original and round-trip results
+			if original.ID != roundTrip.ID {
+				t.Errorf("ID mismatch: original=%q, roundTrip=%q",
+					rune(original.ID), rune(roundTrip.ID))
+			}
+
+			// Compare ReturnType values
+			if !reflect.DeepEqual(original.ReturnType, roundTrip.ReturnType) {
+				t.Errorf("ReturnType mismatch: original=%v (%T), roundTrip=%v (%T)",
+					original.ReturnType, original.ReturnType,
+					roundTrip.ReturnType, roundTrip.ReturnType)
+			}
+
+			// Compare BulkReturnType values (for arrays)
+			if !reflect.DeepEqual(original.BulkReturnType, roundTrip.BulkReturnType) {
+				t.Errorf("BulkReturnType mismatch: original=%v (%T), roundTrip=%v (%T)",
+					original.BulkReturnType, original.BulkReturnType,
+					roundTrip.BulkReturnType, roundTrip.BulkReturnType)
+			}
+
+			t.Logf("Passed round-trip test: %s", tc.name)
+		})
+	}
+}
+
+// TestSerializeStandalone tests serialization of manually created DataType objects
+func TestSerializeStandalone(t *testing.T) {
+	svc := NewRespService()
+
+	tests := []struct {
+		name     string
+		dataType DataType
+		expected string
+		wantErr  bool
+	}{
+		// Simple Strings
+		{
+			name:     "Simple string",
+			dataType: DataType{ID: STRING, ReturnType: "OK"},
+			expected: "+OK\r\n",
+			wantErr:  false,
+		},
+		{
+			name:     "Empty simple string",
+			dataType: DataType{ID: STRING, ReturnType: ""},
+			expected: "+\r\n",
+			wantErr:  false,
+		},
+
+		// Simple Errors
+		{
+			name:     "Simple error",
+			dataType: DataType{ID: ERROR, ReturnType: "ERR unknown command"},
+			expected: "-ERR unknown command\r\n",
+			wantErr:  false,
+		},
+
+		// Integers
+		{
+			name:     "Positive integer",
+			dataType: DataType{ID: INTEGER, ReturnType: int64(42)},
+			expected: ":42\r\n",
+			wantErr:  false,
+		},
+		{
+			name:     "Negative integer",
+			dataType: DataType{ID: INTEGER, ReturnType: int64(-123)},
+			expected: ":-123\r\n",
+			wantErr:  false,
+		},
+		{
+			name:     "Zero integer",
+			dataType: DataType{ID: INTEGER, ReturnType: int64(0)},
+			expected: ":0\r\n",
+			wantErr:  false,
+		},
+
+		// Bulk Strings
+		{
+			name:     "Bulk string",
+			dataType: DataType{ID: BULK, ReturnType: "hello world"},
+			expected: "$11\r\nhello world\r\n",
+			wantErr:  false,
+		},
+		{
+			name:     "Empty bulk string",
+			dataType: DataType{ID: BULK, ReturnType: ""},
+			expected: "$0\r\n\r\n",
+			wantErr:  false,
+		},
+		{
+			name:     "Null bulk string",
+			dataType: DataType{ID: BULK, ReturnType: nil},
+			expected: "$-1\r\n",
+			wantErr:  false,
+		},
+
+		// Arrays
+		{
+			name:     "Empty array",
+			dataType: DataType{ID: ARRAY, BulkReturnType: []any{}},
+			expected: "*0\r\n",
+			wantErr:  false,
+		},
+		{
+			name:     "Null array",
+			dataType: DataType{ID: ARRAY, BulkReturnType: nil},
+			expected: "*-1\r\n",
+			wantErr:  false,
+		},
+		{
+			name:     "Array of strings",
+			dataType: DataType{ID: ARRAY, BulkReturnType: []any{"GET", "key"}},
+			expected: "*2\r\n$3\r\nGET\r\n$3\r\nkey\r\n",
+			wantErr:  false,
+		},
+		{
+			name:     "Mixed array",
+			dataType: DataType{ID: ARRAY, BulkReturnType: []any{"SET", "key", "value", int64(42)}},
+			expected: "*4\r\n$3\r\nSET\r\n$3\r\nkey\r\n$5\r\nvalue\r\n:42\r\n",
+			wantErr:  false,
+		},
+		{
+			name:     "Array with null",
+			dataType: DataType{ID: ARRAY, BulkReturnType: []any{nil, "value"}},
+			expected: "*2\r\n$-1\r\n$5\r\nvalue\r\n",
+			wantErr:  false,
+		},
+
+		// Error cases
+		{
+			name:     "Invalid ID",
+			dataType: DataType{ID: 0, ReturnType: "test"},
+			expected: "",
+			wantErr:  true,
+		},
+		{
+			name:     "Simple string with CR",
+			dataType: DataType{ID: STRING, ReturnType: "test\rstring"},
+			expected: "",
+			wantErr:  true,
+		},
+		{
+			name:     "Simple string with LF",
+			dataType: DataType{ID: STRING, ReturnType: "test\nstring"},
+			expected: "",
+			wantErr:  true,
+		},
+		{
+			name:     "Error with CR",
+			dataType: DataType{ID: ERROR, ReturnType: "test\rerror"},
+			expected: "",
+			wantErr:  true,
+		},
+		{
+			name:     "Integer with wrong type",
+			dataType: DataType{ID: INTEGER, ReturnType: "not a number"},
+			expected: "",
+			wantErr:  true,
+		},
+		{
+			name:     "Bulk string with wrong type",
+			dataType: DataType{ID: BULK, ReturnType: int64(42)},
+			expected: "",
+			wantErr:  true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := svc.Serialize(tc.dataType)
+
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("Expected error for %s, but got none. Result: %q", tc.name, result)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error for %s: %v", tc.name, err)
+					return
+				}
+				if result != tc.expected {
+					t.Errorf("Serialization mismatch for %s:\nExpected: %q\nGot:      %q",
+						tc.name, tc.expected, result)
+				}
+			}
+		})
+	}
+}
+
+// TestSerializeComplexArrays tests complex array serialization scenarios
+func TestSerializeComplexArrays(t *testing.T) {
+	svc := NewRespService()
+
+	tests := []struct {
+		name     string
+		dataType DataType
+		expected string
+	}{
+		{
+			name: "Nested array",
+			dataType: DataType{
+				ID: ARRAY,
+				BulkReturnType: []any{
+					[]any{"GET", "key"},
+					int64(42),
+				},
+			},
+			expected: "*2\r\n*2\r\n$3\r\nGET\r\n$3\r\nkey\r\n:42\r\n",
+		},
+		{
+			name: "Deep nested array",
+			dataType: DataType{
+				ID: ARRAY,
+				BulkReturnType: []any{
+					[]any{
+						[]any{"PING"},
+					},
+					"OK",
+				},
+			},
+			expected: "*2\r\n*1\r\n*1\r\n$4\r\nPING\r\n$2\r\nOK\r\n",
+		},
+		{
+			name: "Array with various types",
+			dataType: DataType{
+				ID: ARRAY,
+				BulkReturnType: []any{
+					"string",
+					int64(123),
+					nil,
+					[]any{"nested", "array"},
+					"",
+				},
+			},
+			expected: "*5\r\n$6\r\nstring\r\n:123\r\n$-1\r\n*2\r\n$6\r\nnested\r\n$5\r\narray\r\n$0\r\n\r\n",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := svc.Serialize(tc.dataType)
+			if err != nil {
+				t.Errorf("Error serializing %s: %v", tc.name, err)
+				return
+			}
+
+			if result != tc.expected {
+				t.Errorf("Serialization mismatch for %s:\nExpected: %q\nGot:      %q",
+					tc.name, tc.expected, result)
+			}
+
+			// Verify round-trip works
+			parsed, err := svc.Parse([]byte(result))
+			if err != nil {
+				t.Errorf("Error parsing serialized result for %s: %v", tc.name, err)
+				return
+			}
+
+			if !reflect.DeepEqual(tc.dataType.BulkReturnType, parsed.ReturnType) {
+				t.Errorf("Round-trip mismatch for %s:\nOriginal: %v\nParsed:   %v",
+					tc.name, tc.dataType.BulkReturnType, parsed.ReturnType)
+			}
+		})
+	}
+}

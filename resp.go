@@ -77,6 +77,7 @@ func NewRespService() *Svc {
 
 type RedisSerializationProtocolParser interface {
 	Parse(data []byte) (DataType, error)
+	Serialize(resp DataType) (string, error)
 }
 
 func (s *Svc) Parse(data []byte) (DataType, error) {
@@ -409,8 +410,6 @@ func (s *Svc) ParseToArray(dataType *DataType) error {
 	return nil
 }
 
-/* Helper Methods */
-
 // parseSimpleType handles the common parsing logic for simple strings and errors
 func (s *Svc) parseSimpleType(dataType *DataType, invalidError error) error {
 	rd := bufio.NewReader(bytes.NewReader(dataType.Msg[1:]))
@@ -514,6 +513,168 @@ func (s *Svc) handleParsing(dataTypeId byte) func(*DataType) error {
 		return func(*DataType) error { return invalidInputError }
 	}
 }
+
+func (s *Svc) Serialize(resp DataType) (string, error) {
+	if !isKnownType(resp.ID) {
+		return "", invalidInputIDError
+	}
+
+	switch resp.ID {
+	case STRING:
+		return s.serializeSimpleString(resp)
+	case ERROR:
+		return s.serializeSimpleError(resp)
+	case INTEGER:
+		return s.serializeInteger(resp)
+	case BULK:
+		return s.serializeBulkString(resp)
+	case ARRAY:
+		return s.serializeArray(resp)
+	default:
+		return "", invalidInputIDError
+	}
+}
+
+// serializeSimpleString serializes a simple string to RESP format
+func (s *Svc) serializeSimpleString(resp DataType) (string, error) {
+	if resp.ReturnType == nil {
+		return "", invalidInputForSimpleStringError
+	}
+
+	str, ok := resp.ReturnType.(string)
+	if !ok {
+		return "", invalidInputForSimpleStringError
+	}
+
+	// Simple strings cannot contain CR or LF
+	if strings.Contains(str, "\r") || strings.Contains(str, "\n") {
+		return "", invalidInputForSimpleStringError
+	}
+
+	return fmt.Sprintf("+%s\r\n", str), nil
+}
+
+// serializeSimpleError serializes a simple error to RESP format
+func (s *Svc) serializeSimpleError(resp DataType) (string, error) {
+	if resp.ReturnType == nil {
+		return "", invalidInputForSimpleErrorError
+	}
+
+	str, ok := resp.ReturnType.(string)
+	if !ok {
+		return "", invalidInputForSimpleErrorError
+	}
+
+	// Simple errors cannot contain CR or LF
+	if strings.Contains(str, "\r") || strings.Contains(str, "\n") {
+		return "", invalidInputForSimpleErrorError
+	}
+
+	return fmt.Sprintf("-%s\r\n", str), nil
+}
+
+// serializeInteger serializes an integer to RESP format
+func (s *Svc) serializeInteger(resp DataType) (string, error) {
+	if resp.ReturnType == nil {
+		return "", invalidInputForIntegerError
+	}
+
+	var num int64
+	switch v := resp.ReturnType.(type) {
+	case int64:
+		num = v
+	default:
+		return "", invalidInputForIntegerError
+	}
+
+	return fmt.Sprintf(":%d\r\n", num), nil
+}
+
+// serializeBulkString serializes a bulk string to RESP format
+func (s *Svc) serializeBulkString(resp DataType) (string, error) {
+	if resp.ReturnType == nil {
+		// Null bulk string
+		return "$-1\r\n", nil
+	}
+
+	str, ok := resp.ReturnType.(string)
+	if !ok {
+		return "", invalidBulkStringInputError
+	}
+
+	// Check if string is too large (512MB limit)
+	if len(str) > 512*megabyte {
+		return "", invalidBulkStringInputError
+	}
+
+	return fmt.Sprintf("$%d\r\n%s\r\n", len(str), str), nil
+}
+
+// serializeArray serializes an array to RESP format
+func (s *Svc) serializeArray(resp DataType) (string, error) {
+	var elements []any
+
+	// Handle both ReturnType and BulkReturnType for arrays
+	if resp.ReturnType != nil {
+		if arr, ok := resp.ReturnType.([]any); ok {
+			elements = arr
+		} else {
+			return "", invalidInputError
+		}
+	} else if resp.BulkReturnType != nil {
+		elements = resp.BulkReturnType
+	} else {
+		// Null array
+		return "*-1\r\n", nil
+	}
+
+	var result strings.Builder
+	result.WriteString(fmt.Sprintf("*%d\r\n", len(elements)))
+
+	for _, elem := range elements {
+		// Create a temporary DataType for each element to serialize it
+		var elemDataType DataType
+
+		switch v := elem.(type) {
+		case string:
+			elemDataType = DataType{
+				ID:         BULK,
+				ReturnType: v,
+			}
+		case int64, int, int32, int16, int8:
+			elemDataType = DataType{
+				ID:         INTEGER,
+				ReturnType: v,
+			}
+		case []any:
+			elemDataType = DataType{
+				ID:             ARRAY,
+				BulkReturnType: v,
+			}
+		case nil:
+			elemDataType = DataType{
+				ID:         BULK,
+				ReturnType: nil, // Will serialize as null bulk string
+			}
+		default:
+			// Try to convert to string as fallback
+			elemDataType = DataType{
+				ID:         BULK,
+				ReturnType: fmt.Sprintf("%v", v),
+			}
+		}
+
+		serialized, err := s.Serialize(elemDataType)
+		if err != nil {
+			return "", err
+		}
+		result.WriteString(serialized)
+	}
+
+	return result.String(), nil
+}
+
+/* Helper Methods */
 
 func isKnownType(b byte) bool {
 	switch b {
