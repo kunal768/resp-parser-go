@@ -16,6 +16,8 @@ func main() {
 	// Initialize your RESP parser service
 	svc := NewRespService()
 
+	/* Parse examples */
+
 	// Example: Parse a simple string "+OK\r\n"
 	input := []byte("+OK\r\n")
 	parsedData, err := svc.Parse(input)
@@ -49,6 +51,28 @@ func main() {
 	// For arrays, the parsed elements are in BulkReturnType
 	fmt.Printf("Parsed Array Elements: %v\n", parsedArrayData.BulkReturnType) 
 	fmt.Printf("Parsed Array Raw Message: %q\n", parsedArrayData.Msg)
+
+	
+	/* Serialize examples */
+
+	// Simple string
+	simpleStr := DataType{ID: STRING, ReturnType: "OK"}
+	result, _ := svc.Serialize(simpleStr) // "+OK\r\n"
+	
+	// Integer
+	integer := DataType{ID: INTEGER, ReturnType: int64(42)}
+	result, _ := svc.Serialize(integer) // ":42\r\n"
+	
+	// Bulk string
+	bulkStr := DataType{ID: BULK, ReturnType: "Hello World"}
+	result, _ := svc.Serialize(bulkStr) // "$11\r\nHello World\r\n"
+	
+	// Array
+	array := DataType{
+	    ID: ARRAY,
+	    BulkReturnType: []any{"GET", "key", int64(42)},
+	}
+	result, _ := svc.Serialize(array) // "*3\r\n$3\r\nGET\r\n$3\r\nkey\r\n:42\r\n"
 }
 ```
 
