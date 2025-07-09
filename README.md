@@ -1,5 +1,5 @@
 # resp-parser-go
-A simple RESP (Redis Serialization Protocol) parser implementation in Golang <br />
+Implementation of a simple RESP (Redis Serialization Protocol) parser in Golang <br />
 >[!IMPORTANT]  
 >Currently supports RESP2 only
 
@@ -32,9 +32,9 @@ func main() {
 		log.Fatalf("Error parsing RESP data: %v", err)
 	}
 
-	fmt.Printf("Parsed ID: %c\n", parsedData.ID)
-	fmt.Printf("Parsed ReturnType: %v\n", parsedData.ReturnType)
-	fmt.Printf("Parsed Raw Message: %q\n", parsedData.Msg)
+	fmt.Printf("Parsed ID: %c\n", parsedData.ID)              // +
+	fmt.Printf("Parsed ReturnType: %v\n", parsedData.ReturnType) // OK
+	fmt.Printf("Parsed Raw Message: %q\n", parsedData.Msg)       // "+OK\r\n"
 
 	// Example: Parse an integer ":123\r\n"
 	inputInt := []byte(":123\r\n")
@@ -43,9 +43,9 @@ func main() {
 		log.Fatalf("Error parsing RESP integer: %v", err)
 	}
 
-	fmt.Printf("Parsed Integer ID: %c\n", parsedIntData.ID)
-	fmt.Printf("Parsed Integer ReturnType: %v\n", parsedIntData.ReturnType)
-	fmt.Printf("Parsed Integer Raw Message: %q\n", parsedIntData.Msg)
+	fmt.Printf("Parsed Integer ID: %c\n", parsedIntData.ID)              // :
+	fmt.Printf("Parsed Integer ReturnType: %v\n", parsedIntData.ReturnType) // 123
+	fmt.Printf("Parsed Integer Raw Message: %q\n", parsedIntData.Msg)       // ":123\r\n"
 
 	// Example: Parse an array "*2\r\n+foo\r\n:123\r\n"
 	inputArray := []byte("*2\r\n+foo\r\n:123\r\n")
@@ -54,10 +54,10 @@ func main() {
 		log.Fatalf("Error parsing RESP array: %v", err)
 	}
 
-	fmt.Printf("Parsed Array ID: %c\n", parsedArrayData.ID)
+	fmt.Printf("Parsed Array ID: %c\n", parsedArrayData.ID) // *
 	// For arrays, the parsed elements are in BulkReturnType
-	fmt.Printf("Parsed Array Elements: %v\n", parsedArrayData.BulkReturnType)
-	fmt.Printf("Parsed Array Raw Message: %q\n", parsedArrayData.Msg)
+	fmt.Printf("Parsed Array Elements: %v\n", parsedArrayData.BulkReturnType) // [foo 123]
+	fmt.Printf("Parsed Array Raw Message: %q\n", parsedArrayData.Msg) // "*2\r\n+foo\r\n:123\r\n"
 
 	/* Serialize examples */
 
@@ -86,7 +86,10 @@ func main() {
 }
 ```
 
+>[!CAUTION]  
+>For arrays, the parsed elements are in `BulkReturnType`
+
 # Run Tests
 ```zsh
-go test -v ./resp
+go test -v
 ```
