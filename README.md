@@ -91,5 +91,5 @@ func main() {
 
 # Run Tests
 ```zsh
-go test -v
+go test -v ./resp
 ```
