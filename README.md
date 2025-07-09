@@ -1,5 +1,5 @@
 # resp-parser-go
-Implementation of a simple RESP (Redis Serialization Protocol) parser in Golang <br />
+A simple RESP (Redis Serialization Protocol) parser implementation in Golang <br />
 >[!IMPORTANT]  
 >Currently supports RESP2 only
 
