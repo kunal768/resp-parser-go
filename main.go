@@ -1,10 +1,3 @@
-# resp-parser-go
-Implementation of a simple RESP (Redis Serialization Protocol) parser in Golang <br />
->[!IMPORTANT]  
->Currently supports RESP2 only
-
-# Example 
-```go
 package main
 
 import (
@@ -79,9 +72,3 @@ func main() {
 	result, _ = svc.Serialize(array) // "*3\r\n$3\r\nGET\r\n$3\r\nkey\r\n:42\r\n"
 	fmt.Println(result)
 }
-```
-
-# Run Tests
-```zsh
-go test -v
-```
