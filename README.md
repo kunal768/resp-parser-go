@@ -3,6 +3,11 @@ Implementation of a simple RESP (Redis Serialization Protocol) parser in Golang 
 >[!IMPORTANT]  
 >Currently supports RESP2 only
 
+# To Import 
+```bash
+go get github.com/kunal768/resp-parser-go/resp
+```
+
 # Example 
 ```go
 package main
